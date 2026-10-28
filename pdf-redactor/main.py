@@ -148,10 +148,55 @@ def find_sensitive_spans(text):
 def mask_container(container):
     for paragraph in container.paragraphs:
         mask_paragraph(paragraph)
+        repair_spacing(paragraph)
     for table in container.tables:
         for row in table.rows:
             for cell in row.cells:
                 mask_container(cell)
+
+
+#Fix spacing
+def repair_spacing(paragraph):
+    runs = paragraph.runs
+
+    #Record each character and the run it belongs to
+    chars = [
+        (char, i)
+        for i, run in enumerate(runs)
+        for char in run.text
+    ]
+
+    updated = ["" for _ in runs]
+    pos = 0
+
+    while pos < len(chars):
+        char, run_index = chars[pos]
+
+        if char != "\u200b":
+            updated[run_index] += char
+            pos += 1
+            continue
+    
+
+        end = pos
+        while end < len(chars) and chars[end][0] == "\u200b":
+            end += 1
+
+        left = chars[pos - 1][0] if pos else ""
+        right = chars[end][0] if end < len(chars) else ""
+
+        #Decide whether to insert a real space
+        if (left and right and not left.isspace() and not right.isspace()
+            and right not in ".,;:!?)]}" and left not in "({["
+        ):
+            updated[run_index] += " "
+
+        pos = end
+
+        #Update existing runs to preserve formatting
+        for run, text in zip(runs, updated):
+            if run.text != text:
+                run.text = text
 
 parser.add_argument(
     "-p",
