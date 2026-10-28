@@ -22,6 +22,24 @@ parser = argparse.ArgumentParser(description="Convert a PDF to DOCX and mask sen
 ##load spacCy's small English model
 nlp = spacy.load("en_core_web_sm")
 
+placeholder_map = {}
+
+def get_placeholder(category, value):
+    key = (category, value)
+
+    if key in placeholder_map:
+        return placeholder_map[key]
+
+    count = sum(
+        1 for stored_category, _ in placeholder_map
+        if stored_category == category
+    )
+
+    placeholder = f"[{category}_{count+1}]"
+    placeholder_map[key] = placeholder
+
+    return placeholder
+
 ##Masking function
 def mask_sensitive_info(text):
     email_pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
@@ -111,7 +129,7 @@ def find_sensitive_spans(text):
             spans.append((
                 match.start(),
                 match.end(),
-                f"[{category}]"
+                category
             ))
 
     normalized_text = text.replace("\u200b", " ")
@@ -131,7 +149,7 @@ def find_sensitive_spans(text):
             spans.append((
                 entity.start_char,
                 entity.end_char,
-                "[PERSON]"
+                "PERSON"
             ))
 
     spans.sort(key=lambda span: (span[0], -(span[1] - span[0])))
@@ -142,7 +160,14 @@ def find_sensitive_spans(text):
         if not filtered or span[0] >= filtered[-1][1]:
             filtered.append(span)
 
-    return filtered
+    numbered_spans = []
+
+    for start, end, category in filtered:
+        original_value = text[start:end]
+        placeholder = get_placeholder(category, original_value)
+        numbered_spans.append((start, end, placeholder))
+
+    return numbered_spans
 
 #Account for containers like table/header/footer
 def mask_container(container):
