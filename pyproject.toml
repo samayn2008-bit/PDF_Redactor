@@ -1,0 +1,20 @@
+[project]
+name = "pdf-redactor"
+version = "0.1.0"
+description = "PDF to DOCX converter with sensitive data masking"
+authors = [
+    {name = "samayn2008-bit",email = "samayn2008@gmail.com"}
+]
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pdf2docx (>=0.5.13,<0.6.0)",
+    "python-docx (>=1.2.0,<2.0.0)",
+    "spacy (>=3.8.16,<4.0.0)"
+]
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+package-mode = false
