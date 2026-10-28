@@ -101,7 +101,7 @@ def mask_paragraph(paragraph):
 def find_sensitive_spans(text):
     spans = []
     patterns = {
-        "EMAIL": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
+        "EMAIL": r"\b[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
         "PHONE": r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b",
         "SSN": r"\b\d{3}-\d{2}-\d{4}\b"
     }
@@ -113,10 +113,21 @@ def find_sensitive_spans(text):
                 match.end(),
                 f"[{category}]"
             ))
-    doc = nlp(text)
+
+    normalized_text = text.replace("\u200b", " ")
+    doc = nlp(normalized_text)
+    excluded_names = {
+        "email",
+        "name",
+        "phone",
+        "number",
+        "address",
+        "contact",
+        "ssn"
+    }
 
     for entity in doc.ents:
-        if entity.label_ == "PERSON":
+        if (entity.label_ == "PERSON" and entity.text.strip().lower() not in excluded_names):
             spans.append((
                 entity.start_char,
                 entity.end_char,
@@ -132,6 +143,15 @@ def find_sensitive_spans(text):
             filtered.append(span)
 
     return filtered
+
+#Account for containers like table/header/footer
+def mask_container(container):
+    for paragraph in container.paragraphs:
+        mask_paragraph(paragraph)
+    for table in container.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                mask_container(cell)
 
 parser.add_argument(
     "-p",
@@ -179,8 +199,12 @@ with tempfile.TemporaryDirectory() as temp_dir:
         converter.close()
 
 document = Document(output_path)
-for paragraph in document.paragraphs:
-    mask_paragraph(paragraph)
+
+mask_container(document)
+
+for section in document.sections:
+    mask_container(section.header)
+    mask_container(section.footer)
 
 document.save(output_path)
 print("Conversion successful!")
