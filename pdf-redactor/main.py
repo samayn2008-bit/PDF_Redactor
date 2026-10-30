@@ -16,6 +16,7 @@ import spacy
 from docx import Document
 import tempfile
 import pymupdf
+import shlex
 
 parser = argparse.ArgumentParser(description="Convert a PDF to DOCX and mask sensitive information")
 
@@ -278,6 +279,6 @@ for section in document.sections:
 
 document.save(output_path)
 print("Conversion successful!")
-print(f"open {output_path}")
+print(f"open {shlex.quote(str(output_path))}")
 
 
