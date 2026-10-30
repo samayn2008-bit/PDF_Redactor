@@ -41,34 +41,6 @@ def get_placeholder(category, value):
 
     return placeholder
 
-##Masking function
-def mask_sensitive_info(text):
-    email_pattern = r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b"
-    phone_pattern = r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b";
-    ssn_pattern = r"\b\d{3}-\d{2}-\d{4}\b";
-    patterns = {
-        "EMAIL": email_pattern,
-        "PHONE": phone_pattern,
-        "SSN": ssn_pattern
-    }
-    for category, pattern in patterns.items():
-        matches = re.findall(pattern, text)
-        for match in matches:
-            placeholder = f"[{category}]"
-            text = text.replace(match, placeholder)
-
-    ##analyze text after regex masking
-    doc = nlp(text)
-
-    for entity in reversed(doc.ents):
-        if entity.label_ == "PERSON":
-            text = (
-                text[:entity.start_char]
-                + "[PERSON]"
-                + text[entity.end_char:]
-            )
-    return text
-
 
 def mask_paragraph(paragraph):
     runs = paragraph.runs
@@ -85,36 +57,39 @@ def mask_paragraph(paragraph):
         return
 
     # Determine each run's position in original paragraph
-    boundaries = []
     position = 0
-
-    for text in original_texts:
-        start = position
-        end = start + len(text)
-        boundaries.append((start, end))
-        position = end
 
     # Construct each run's new text without shifting positions
     for i, run in enumerate(runs):
-        run_start, run_end = boundaries[i]
-        pieces = []
-        cursor = run_start
+        original = original_texts[i]
+        
+        run_start = position
+        run_end = position + len(original)
+        position = run_end
 
-        for start, end, placeholder in spans:
-            if end <= run_start or start >= run_end:
-                continue
-            if start > cursor:
-                pieces.append(full_text[cursor:min(start, run_end)])
+        ## Find sensitive spans overlapping this run
+        relevant = [
+            (start, end, placeholder)
+            for start, end, placeholder in spans
+            if start < run_end and end > run_start
+        ]
 
-            if run_start <= start < run_end:
-                pieces.append(placeholder)
+        ## Work right to left to avoid shifting indices
+        for start, end, placeholder in reversed(relevant):
+            local_start = max(0, start - run_start)
+            local_end = min(len(original_texts[i]), end - run_start)
 
-            cursor = max(cursor, min(end, run_end))
+            # Insert placeholder only where the match begins
+            replacement = (
+                placeholder if run_start <= start < run_end else ""
+            )
 
-        if cursor < run_end:
-            pieces.append(full_text[cursor:run_end])
+            original = (
+                original[:local_start] + replacement + original[local_end:]
+            )
 
-        run.text = "".join(pieces)
+        if relevant:
+            run.text = original
 
     
 def find_sensitive_spans(text):
@@ -146,12 +121,23 @@ def find_sensitive_spans(text):
     }
 
     for entity in doc.ents:
-        if (entity.label_ == "PERSON" and entity.text.strip().lower() not in excluded_names):
-            spans.append((
-                entity.start_char,
-                entity.end_char,
-                "PERSON"
-            ))
+        if (entity.label_ != "PERSON"):
+            continue;
+
+        start = entity.start_char
+        end = entity.end_char
+
+        #Remove surrounding whitepace and separator characters
+        while start < end and text[start] in " \t\n\u200b-":
+            start += 1
+
+        while end > start and text[end-1] in " \t\n\u200b-":
+            end -= 1
+
+        name = text[start:end].replace("\u200b", " ").strip()
+
+        if name and name.lower() not in excluded_names:
+            spans.append((start, end, "PERSON"))
 
     spans.sort(key=lambda span: (span[0], -(span[1] - span[0])))
 
@@ -219,10 +205,10 @@ def repair_spacing(paragraph):
 
         pos = end
 
-        #Update existing runs to preserve formatting
-        for run, text in zip(runs, updated):
-            if run.text != text:
-                run.text = text
+    #Update existing runs to preserve formatting
+    for run, text in zip(runs, updated):
+        if run.text != text:
+            run.text = text
 
 parser.add_argument(
     "-p",
@@ -240,7 +226,6 @@ def remove_pdf_links(pdf_path, temp_path):
         pdf.save(str(temp_path))
 
 args = parser.parse_args();
-print(args.pdf)
 
 pdf_path = Path(args.pdf).expanduser().resolve()
 if not pdf_path.is_file():
@@ -278,7 +263,7 @@ for section in document.sections:
     mask_container(section.footer)
 
 document.save(output_path)
-print("Conversion successful!")
+print("Conversion and masking successful!")
 print(f"open {shlex.quote(str(output_path))}")
 
 
