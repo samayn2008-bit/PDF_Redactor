@@ -17,7 +17,7 @@ from docx import Document
 import tempfile
 import pymupdf
 import shlex
-import json
+import sys
 
 parser = argparse.ArgumentParser(description="Convert a PDF to DOCX and mask sensitive information")
 
@@ -292,8 +292,10 @@ document.save(output_path)
 key_path = pdf_path.with_name(pdf_path.stem + "_redacted_KEY.docx")
 save_redaction_key(key_path)
 
+open_command = "open" if sys.platform == "darwin" else "xdg-open"
+
 print("Conversion and masking successful!")
-print(f"open {shlex.quote(str(output_path))}")
-print(f"Open redaction key: open{shlex.quote(str(key_path))}")
+print(f"Open redacted document: {open_command} {shlex.quote(str(output_path))}")
+print(f"Open redaction key: {open_command} {shlex.quote(str(key_path))}")
 
 
