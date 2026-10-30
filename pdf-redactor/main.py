@@ -17,6 +17,7 @@ from docx import Document
 import tempfile
 import pymupdf
 import shlex
+import json
 
 parser = argparse.ArgumentParser(description="Convert a PDF to DOCX and mask sensitive information")
 
@@ -24,6 +25,30 @@ parser = argparse.ArgumentParser(description="Convert a PDF to DOCX and mask sen
 nlp = spacy.load("en_core_web_sm")
 
 placeholder_map = {}
+
+def save_redaction_key(key_path):
+    key_document = Document();
+
+    key_document.add_heading("Redaction Key", level=1)
+
+    key_document.add_paragraph(
+        "This document contains the original sensitive information "
+        "that was replaced during redaction. Keep it private."
+    )
+
+    table = key_document.add_table(rows=1, cols=2)
+    table.style = "Table Grid"
+
+    header = table.rows[0].cells
+    header[0].text = "Placeholder"
+    header[1].text = "Original Value"
+
+    for (category, original_value), placeholder in placeholder_map.items():
+        row = table.add_row().cells
+        row[0].text = placeholder
+        row[1].text = original_value
+
+    key_document.save(key_path)
 
 def get_placeholder(category, value):
     key = (category, value)
@@ -263,7 +288,12 @@ for section in document.sections:
     mask_container(section.footer)
 
 document.save(output_path)
+
+key_path = pdf_path.with_name(pdf_path.stem + "_redacted_KEY.docx")
+save_redaction_key(key_path)
+
 print("Conversion and masking successful!")
 print(f"open {shlex.quote(str(output_path))}")
+print(f"Open redaction key: open{shlex.quote(str(key_path))}")
 
 
