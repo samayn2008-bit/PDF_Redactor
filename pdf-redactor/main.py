@@ -18,6 +18,8 @@ import tempfile
 import pymupdf
 import shlex
 import sys
+import subprocess
+import os
 
 parser = argparse.ArgumentParser(description="Convert a PDF to DOCX and mask sensitive information")
 
@@ -66,6 +68,18 @@ def get_placeholder(category, value):
 
     return placeholder
 
+def get_open_command(file_path):
+    if sys.platform == "darwin":
+        return f"open {shlex.quote(str(file_path))}"
+
+    elif sys.platform.startswith("linux"):
+        return f"xdg-open {shlex.quote(str(file_path))}"
+
+    elif sys.platform == "win32":
+        return f'start "" "{str(file_path)}"'
+
+    else:
+        return str(file_path)
 
 def mask_paragraph(paragraph):
     runs = paragraph.runs
@@ -292,10 +306,9 @@ document.save(output_path)
 key_path = pdf_path.with_name(pdf_path.stem + "_redacted_KEY.docx")
 save_redaction_key(key_path)
 
-open_command = "open" if sys.platform == "darwin" else "xdg-open"
-
 print("Conversion and masking successful!")
-print(f"Open redacted document: {open_command} {shlex.quote(str(output_path))}")
-print(f"Open redaction key: {open_command} {shlex.quote(str(key_path))}")
+print("Open redacted document:")
+print(get_open_command(output_path))
 
-
+print("Open redaction key:")
+print(get_open_command(key_path))
