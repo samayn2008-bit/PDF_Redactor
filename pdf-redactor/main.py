@@ -18,7 +18,6 @@ import tempfile
 import pymupdf
 import shlex
 import sys
-import subprocess
 import os
 
 parser = argparse.ArgumentParser(description="Convert a PDF to DOCX and mask sensitive information")
@@ -130,70 +129,150 @@ def mask_paragraph(paragraph):
         if relevant:
             run.text = original
 
+def valid_person_name(name):
+    #Name must have 2-4 name-like words.
+    words = name.split()
+    excluded_names = {
+            "email",
+            "name",
+            "phone",
+            "number",
+            "address",
+            "contact",
+            "ssn",
+            "contact information",
+            "case number",
+            "reference number"
+    }
+
+    if name.casefold() in excluded_names:
+        return False
+
+    if not 2 <= len(words) <= 4:
+        return False
+
+    # Exclude obvious non-name structures
+    if any(char.isdigit() for char in name):
+        return False
     
+    # Names with numbers, email addresses, or field separators
+    if "@" in name or " - " in name or "|" in name or ";" in name:
+        return False
+
+    # Reject legal case titles
+    if re.search(r"\b(v\.?|vs\.?|versus)\b", name, re.I):
+        return False
+
+    #Reject all-uppercase headings and labels
+    if name.isupper():
+        return False
+
+    return True
+
+
 def find_sensitive_spans(text):
-    spans = []
     patterns = {
         "EMAIL": r"\b[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
         "PHONE": r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b",
         "SSN": r"\b\d{3}-\d{2}-\d{4}\b"
     }
 
+    structured_spans = []
+
+
+    # 1. Detect emails, phones, and SSNs first
     for category, pattern in patterns.items():
         for match in re.finditer(pattern, text):
-            spans.append((
-                match.start(),
-                match.end(),
-                category
-            ))
+            start, end = match.span()
 
-    normalized_text = text.replace("\u200b", " ")
-    doc = nlp(normalized_text)
-    excluded_names = {
-        "email",
-        "name",
-        "phone",
-        "number",
-        "address",
-        "contact",
-        "ssn"
-    }
+            if not any(start < e and e > s for s, e, _ in structured_spans):
+                structured_spans.append((start, end, category))
+
+
+    # 2. Prepare text for spaCy without changing offsets
+    chars = list(text.replace("\u200b", " "))
+
+    for start, end, _ in structured_spans:
+        for i in range(start, end):
+            if chars[i] != "\n":
+                chars[i] = " "
+
+    analysis_text = "".join(chars)
+
+    # 3. Detect potential names
+    doc = nlp(analysis_text)
+    person_spans = []
 
     for entity in doc.ents:
         if (entity.label_ != "PERSON"):
             continue;
 
-        start = entity.start_char
-        end = entity.end_char
+        entity_text = analysis_text[entity.start_char:entity.end_char]
 
-        #Remove surrounding whitepace and separator characters
-        while start < end and text[start] in " \t\n\u200b-":
-            start += 1
+        #Split long predictions at field separators
+        separators = list(re.finditer(r"\s+-\s+|[;|\n]", entity_text))
 
-        while end > start and text[end-1] in " \t\n\u200b-":
-            end -= 1
+        boundaries = [0]
+        for separator in separators:
+            boundaries.extend([
+                separator.start(),
+                separator.end()
+            ])
+        boundaries.append(len(entity_text))
 
-        name = text[start:end].replace("\u200b", " ").strip()
+        # Each pair represents a candidate section
+        for i in range(0, len(boundaries) - 1, 2):
+            local_start = boundaries[i]
+            local_end = boundaries[i + 1]
 
-        if name and name.lower() not in excluded_names:
-            spans.append((start, end, "PERSON"))
+            chunk = entity_text[local_start:local_end]
+            candidate = chunk.strip()
 
-    spans.sort(key=lambda span: (span[0], -(span[1] - span[0])))
+            if not valid_person_name(candidate):
+                continue
 
-    filtered = []
+            # Translate back to original text positions
+            leading_space = len(chunk) - len(chunk.lstrip())
 
-    for span in spans:
-        if not filtered or span[0] >= filtered[-1][1]:
-            filtered.append(span)
+            start = (
+                entity.start_char
+                + local_start
+                + leading_space
+            )
+            end = start + len(candidate)
 
+            # Avoid overlap with structured identifiers
+            if any(
+                start < e and end > s
+                for s, e, _ in structured_spans
+            ):
+                continue
+
+            person_spans.append((start, end, "PERSON"))
+
+    # 4. Combine matches and prioritze structured data
+    accepted = structured_spans[:]
+
+    for start, end, category in person_spans:
+        if not any(
+            start < e and end > s
+            for s, e, _ in accepted
+        ):
+            accepted.append((start, end, category))
+
+    # Restore the original document order
+    accepted.sort(key=lambda span: span[0])
+
+    # 5. Assign placeholders
     numbered_spans = []
 
-    for start, end, category in filtered:
+    for start, end, category in accepted:
         original_value = text[start:end]
         placeholder = get_placeholder(category, original_value)
         numbered_spans.append((start, end, placeholder))
 
     return numbered_spans
+
 
 #Account for containers like table/header/footer
 def mask_container(container):

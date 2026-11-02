@@ -39,6 +39,7 @@ cd PDF_Redactor/pdf-redactor
 
 2. Install dependencies
 ```bash
+poetry env use python3.12
 poetry install
 ```
 
@@ -57,3 +58,5 @@ For example, on macOS:
 ```bash
 poetry run python main.py -p ~/Downloads/document.pdf
 ```
+
+The script also prints a command that can be used to open each output document on macOS.
