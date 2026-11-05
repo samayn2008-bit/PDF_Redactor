@@ -18,7 +18,6 @@ import tempfile
 import pymupdf
 import shlex
 import sys
-import os
 
 parser = argparse.ArgumentParser(description="Convert a PDF to DOCX and mask sensitive information")
 
@@ -51,21 +50,81 @@ def save_redaction_key(key_path):
 
     key_document.save(key_path)
 
+
+def get_initials(value):
+    words = re.findall(r"[A-Za-z]+", value)
+
+    if not words:
+        return "UNKNOWN"
+
+    return "".join(word[0].upper() for word in words[:2])
+
+def get_email_initials(email):
+    local_part = email.split("@", 1) [0]
+
+    words = re.findall(r"[A-Za-z]+", local_part)
+
+    if not words:
+        return "UNKNOWN"
+
+    return "".join(word[0].upper() for word in words[:2])
+
+
+def get_person_alias_by_initials(initials):
+    matches = [
+        alias
+        for (stored_category, _), alias in placeholder_map.items()
+        if stored_category == "PERSON"
+        and alias.startswith(initials)
+    ]
+
+    if len(matches) == 1:
+        return matches[0]
+
+    return None
+
+
 def get_placeholder(category, value):
     key = (category, value)
 
     if key in placeholder_map:
         return placeholder_map[key]
 
-    count = sum(
-        1 for stored_category, _ in placeholder_map
-        if stored_category == category
-    )
+    if category == "EMAIL":
+        initials = get_email_initials(value)
+        person_alias = get_person_alias_by_initials(initials)
 
-    placeholder = f"[{category}_{count+1}]"
+        if person_alias:
+            placeholder = f"{person_alias}@example.invalid"
+        else:
+            placeholder = f"{initials}1@example.invalid"
+
+        placeholder_map[key] = placeholder
+        return placeholder
+
+    if category == "PERSON":
+        initials = get_initials(value)
+
+        existing_aliases = {
+            alias 
+            for (stored_category, _), alias in placeholder_map.items()
+            if stored_category == "PERSON" and alias.startswith(initials)
+        }
+
+        count = len(existing_aliases) + 1
+        placeholder = f"{initials}{count}"
+    else:
+        count = sum(
+            1 for stored_category, _ in placeholder_map
+            if stored_category == category
+        )
+
+        placeholder = f"{category}_{count+1}"
+
     placeholder_map[key] = placeholder
 
     return placeholder
+
 
 def get_open_command(file_path):
     if sys.platform == "darwin":
