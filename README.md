@@ -1,4 +1,4 @@
-# PDF_Redactor
+# pdf_redactor
 
 A Python command-line tool that converts PDF files into Word documents and automatically masks sensitive information.
 
